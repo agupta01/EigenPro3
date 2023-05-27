@@ -1,6 +1,8 @@
-'''Utility functions for performing fast SVD.'''
-import scipy.linalg as linalg
+"""Utility functions for performing fast SVD."""
+import torch.linalg as linalg
 import torch
+import math
+
 
 def nystrom_kernel_svd(samples, kernel_fn, top_q):
     """Compute top eigensystem of kernel matrix using Nystrom method.
@@ -14,12 +16,15 @@ def nystrom_kernel_svd(samples, kernel_fn, top_q):
     """
     # samples /= torch.max(samples).item()
     n_sample, _ = samples.shape
-    kmat = kernel_fn(samples, samples).cpu().data.numpy()
+    kmat = kernel_fn(samples, samples)
     scaled_kmat = kmat / n_sample
-    vals, vecs = linalg.eigh(scaled_kmat,
-                             eigvals=(n_sample - top_q, n_sample - 1))
-    eigvals = torch.from_numpy(vals).flip(0)[:top_q]
-    eigvecs = torch.from_numpy(vecs).flip(1)[:, :top_q]
-    beta = torch.from_numpy(kmat).diag().max()
+    vals, vecs = torch.lobpcg(scaled_kmat, min(top_q + 1, n_sample // 3))
+    # vals, vecs = linalg.eigh(scaled_kmat)
+    # vals = vals[n_sample - top_q : n_sample - 1]
+    # vecs = vecs[:, n_sample - top_q : n_sample - 1]
+    # NOTE: torch.flip returns a copy of the tensor, not a view like np.flip
+    # eigvals = torch.flip(vals, (0,))[:top_q]
+    # eigvecs = torch.flip(vecs, (1,))[:, :top_q]
+    beta = kmat.diag().max()
 
-    return eigvals, eigvecs, beta
+    return vals, vecs / math.sqrt(n_sample), beta
